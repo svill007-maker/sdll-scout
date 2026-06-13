@@ -1,0 +1,1412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>SDLL Scout</title>
+  <meta name="version" content="2.1" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6fa; }
+    input, select, textarea, button { font-family: inherit; font-size: 14px; padding: 8px 10px; border-radius: 7px; border: 1px solid #d1d5db; outline: none; }
+    input:focus, select:focus, textarea:focus { border-color: #E8621A; box-shadow: 0 0 0 2px rgba(232,98,26,0.15); }
+    button { cursor: pointer; }
+    :root {
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --color-background-primary: #ffffff;
+      --color-background-secondary: #f4f6fa;
+      --color-background-tertiary: #eef0f5;
+      --color-text-primary: #111827;
+      --color-text-secondary: #6b7280;
+      --color-border-tertiary: #e5e7eb;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAwMP7LWys5RtxvuSf2_CsiyuoqIqWe-nQ",
+      authDomain: "sdll-scout.firebaseapp.com",
+      databaseURL: "https://sdll-scout-default-rtdb.firebaseio.com",
+      projectId: "sdll-scout",
+      storageBucket: "sdll-scout.firebasestorage.app",
+      messagingSenderId: "53217468562",
+      appId: "1:53217468562:web:e5ff913f30ce9c0694064b",
+    };
+    const firebaseApp = initializeApp(firebaseConfig);
+    const db = getDatabase(firebaseApp);
+    window.__db = db;
+    window.__fbRef = ref;
+    window.__fbOnValue = onValue;
+    window.__fbSet = set;
+    window.__firebaseReady = true;
+    window.dispatchEvent(new Event("firebaseReady"));
+  </script>
+
+  <script type="text/babel" data-type="module">
+    const { useState, useEffect, useRef } = React;
+
+    function useFirebase(path, fallback) {
+      const [val, setVal] = useState(fallback);
+      const [ready, setReady] = useState(false);
+
+      useEffect(() => {
+        const setup = () => {
+          const db = window.__db;
+          const ref = window.__fbRef;
+          const onValue = window.__fbOnValue;
+          const dbRef = ref(db, path);
+          const unsub = onValue(dbRef, (snap) => {
+            const data = snap.val();
+            let loaded = data !== null && data !== undefined ? data : fallback;
+            // Sanitize games — ensure atBats is always an object
+            if (typeof loaded === 'object' && !Array.isArray(loaded)) {
+              Object.keys(loaded).forEach(teamId => {
+                if (Array.isArray(loaded[teamId])) {
+                  loaded[teamId] = loaded[teamId].map(g => ({
+                    ...g,
+                    atBats: g.atBats && typeof g.atBats === 'object' ? g.atBats : {},
+                  }));
+                }
+              });
+            }
+            // Sanitize players object — ensure all player arrays exist
+            if (typeof loaded === 'object' && !Array.isArray(loaded)) {
+              const sanitized = {};
+              Object.keys(loaded).forEach(teamId => {
+                if (Array.isArray(loaded[teamId])) {
+                  sanitized[teamId] = loaded[teamId].map(p => typeof p === 'object' && p !== null ? sanitizePlayer(p) : p);
+                } else {
+                  sanitized[teamId] = loaded[teamId];
+                }
+              });
+              loaded = sanitized;
+            }
+            setVal(loaded);
+            setReady(true);
+          }, () => setReady(true));
+          return unsub;
+        };
+
+        if (window.__firebaseReady) {
+          const unsub = setup();
+          return () => unsub && unsub();
+        } else {
+          let unsub;
+          const handler = () => { unsub = setup(); };
+          window.addEventListener("firebaseReady", handler, { once: true });
+          return () => {
+            window.removeEventListener("firebaseReady", handler);
+            if (unsub) unsub();
+          };
+        }
+      }, [path]);
+
+      // Sanitize player to ensure all array fields exist
+    const sanitizePlayer = (p) => ({
+      id: p.id || crypto.randomUUID(),
+      name: p.name || "",
+      number: p.number || "",
+      positions: Array.isArray(p.positions) ? p.positions : [],
+      battingSide: p.battingSide || "",
+      hitTendency: p.hitTendency || "",
+      speedRating: p.speedRating || "",
+      notes: p.notes || "",
+      customFields: p.customFields || {},
+      scoutingAtBats: Array.isArray(p.scoutingAtBats) ? p.scoutingAtBats : [],
+    });
+
+    const save = (next) => {
+        setVal(next);
+        if (window.__firebaseReady) {
+          window.__fbSet(window.__fbRef(window.__db, path), next).catch(() => {});
+        }
+      };
+
+      return [val, save, ready];
+    }
+
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAwMP7LWys5RtxvuSf2_CsiyuoqIqWe-nQ",
+  authDomain: "sdll-scout.firebaseapp.com",
+  databaseURL: "https://sdll-scout-default-rtdb.firebaseio.com",
+  projectId: "sdll-scout",
+  storageBucket: "sdll-scout.firebasestorage.app",
+  messagingSenderId: "53217468562",
+  appId: "1:53217468562:web:e5ff913f30ce9c0694064b",
+};
+// firebase init handled above
+// db handled above
+
+const PASSWORD = "SDLLOrange8U";
+const SDLL_ORANGE = "#E8621A";
+const SDLL_GREEN = "#2D7A3A";
+const SDLL_DARK = "#1C2B1E";
+const SDLL_LIGHT_GREEN = "#E8F4EA";
+const SDLL_LIGHT_ORANGE = "#FDF0E8";
+
+const HIT_TENDENCIES = ["Pull","Center","Oppo","Pull/Center","Center/Oppo","All Fields"];
+const SPEED_RATINGS = ["Slow","Average","Above Average","Fast","Very Fast"];
+const ALL_POSITIONS = ["P","C","1B","2B","3B","SS","LF","CF","RF","DH"];
+const BATTING_SIDES = ["Left","Right","Switch"];
+const AB_RESULTS = ["Single","Double","Triple","Home Run","Walk","Strikeout (K)","Groundout","Flyout","Lineout","HBP","Sacrifice","Error"];
+const HIT_DIRECTIONS = ["P","C","1B","2B","3B","SS","LF","LCF","CF","RCF","RF"];
+const BATTED_BALL_TYPES = ["Ground Ball","Line Drive","Fly Ball"];
+const FIELD_ZONES = {
+  "P":   { x: 220, y: 238 },
+  "C":   { x: 220, y: 355 },
+  "1B":  { x: 338, y: 272 },
+  "2B":  { x: 277, y: 210 },
+  "3B":  { x: 102, y: 272 },
+  "SS":  { x: 163, y: 210 },
+  "LF":  { x: 95,  y: 170 },
+  "LCF": { x: 148, y: 128 },
+  "CF":  { x: 220, y: 108 },
+  "RCF": { x: 292, y: 128 },
+  "RF":  { x: 345, y: 170 },
+};
+const RESULT_COLORS = {
+  "Single": SDLL_GREEN, "Double": "#1a7abf", "Triple": "#7b2cbf",
+  "Home Run": SDLL_ORANGE, "Walk": "#555", "HBP": "#555",
+  "Strikeout (K)": "#c0392b", "Groundout": "#c0392b", "Flyout": "#c0392b",
+  "Lineout": "#c0392b", "Sacrifice": "#888", "Error": "#888",
+};
+const IS_HIT = r => ["Single","Double","Triple","Home Run"].includes(r);
+
+const DEFAULT_TEAMS = [
+  { id: "sdll-orange", name: "SDLL Orange", isOurs: true },
+  { id: "sdll-green", name: "SDLL Green", isOurs: false },
+  { id: "bull-city", name: "Bull City League", isOurs: false },
+  { id: "wilson-ll", name: "Wilson Little League", isOurs: false },
+];
+
+const newPlayer = () => ({
+  id: crypto.randomUUID(),
+  name: "", number: "", positions: [], battingSide: "",
+  hitTendency: "", speedRating: "", notes: "",
+  customFields: {}, scoutingAtBats: [],
+});
+
+const newTeam = name => ({ id: crypto.randomUUID(), name, isOurs: false });
+
+// useFirebase defined above
+
+function App() {
+  const [authed, setAuthed] = useState(false);
+  const [pwInput, setPwInput] = useState("");
+  const [pwErr, setPwErr] = useState(false);
+  const [teams, setTeams, teamsReady] = useFirebase("sdll/teams", DEFAULT_TEAMS);
+  const [players, setPlayers, playersReady] = useFirebase("sdll/players", {});
+  const [games, setGames, gamesReady] = useFirebase("sdll/games", {});
+  const [customFieldDefs, setCustomFieldDefs, cfReady] = useFirebase("sdll/customFields", []);
+  const [activeTeamId, setActiveTeamId] = useState(null);
+  const [view, setView] = useState("roster");
+  const [selectedPlayerId, setSelectedPlayerId] = useState(null);
+  const [editingPlayer, setEditingPlayer] = useState(null);
+  const [newTeamName, setNewTeamName] = useState("");
+  const [searchQ, setSearchQ] = useState("");
+  const [activeGameId, setActiveGameId] = useState(null);
+
+  useEffect(() => {
+    if (teamsReady && teams.length > 0 && !activeTeamId) setActiveTeamId(teams[0].id);
+  }, [teamsReady, teams]);
+
+  const safeTeams = Array.isArray(teams) ? teams : DEFAULT_TEAMS;
+  const activeTeam = safeTeams.find(t => t.id === activeTeamId);
+  const allTeamPlayers = Array.isArray(players[activeTeamId]) ? players[activeTeamId] : [];
+  const teamPlayers = allTeamPlayers.filter(p =>
+    !searchQ || p.name.toLowerCase().includes(searchQ.toLowerCase()) || (p.number||"").includes(searchQ)
+  );
+  const selectedPlayer = selectedPlayerId ? allTeamPlayers.find(p => p.id === selectedPlayerId) : null;
+  const teamGames = Array.isArray(games[activeTeamId]) ? games[activeTeamId] : [];
+
+  function login() {
+    if (pwInput === PASSWORD) { setAuthed(true); setPwErr(false); }
+    else { setPwErr(true); setPwInput(""); }
+  }
+
+  function savePlayer(player) {
+    const roster = players[activeTeamId] || [];
+    const exists = roster.find(p => p.id === player.id);
+    const updated = exists ? roster.map(p => p.id === player.id ? player : p) : [...roster, player];
+    setPlayers({ ...players, [activeTeamId]: updated });
+    setView("roster"); setEditingPlayer(null); setSelectedPlayerId(player.id);
+  }
+
+  function deletePlayer(playerId) {
+    setPlayers({ ...players, [activeTeamId]: (players[activeTeamId]||[]).filter(p => p.id !== playerId) });
+    if (selectedPlayerId === playerId) setSelectedPlayerId(null);
+  }
+
+  function addTeam() {
+    if (!newTeamName.trim()) return;
+    const t = newTeam(newTeamName.trim());
+    const updated = [...safeTeams, t];
+    setTeams(updated); setActiveTeamId(t.id); setNewTeamName(""); setView("roster"); setSelectedPlayerId(null);
+  }
+
+  function deleteTeam(teamId) {
+    if (teams.length <= 1) return;
+    const updated = safeTeams.filter(t => t.id !== teamId);
+    setTeams(updated);
+    const np = { ...players }; delete np[teamId]; setPlayers(np);
+    const ng = { ...games }; delete ng[teamId]; setGames(ng);
+    setActiveTeamId(updated[0].id); setSelectedPlayerId(null); setView("roster");
+  }
+
+  function addGame(opponent) {
+    const g = { id: crypto.randomUUID(), opponent, date: new Date().toLocaleDateString(), atBats: {} };
+    const updated = { ...games, [activeTeamId]: [...(games[activeTeamId]||[]), g] };
+    setGames(updated); setActiveGameId(g.id); setView("gameday");
+  }
+
+  function logAtBat(gameId, playerId, ab) {
+    const teamGameList = games[activeTeamId] || [];
+    const updated = teamGameList.map(g => {
+      if (g.id !== gameId) return g;
+      const existing = ((g.atBats||{})[playerId])||[];
+      return { ...g, atBats: { ...(g.atBats||{}), [playerId]: [...((g.atBats||{})[playerId]||[]), { ...ab, id: crypto.randomUUID(), ts: Date.now() }] } };
+    });
+    setGames({ ...games, [activeTeamId]: updated });
+  }
+
+  function deleteAtBat(gameId, playerId, abId) {
+    const teamGameList = games[activeTeamId] || [];
+    const updated = teamGameList.map(g => {
+      if (g.id !== gameId) return g;
+      return { ...g, atBats: { ...(g.atBats||{}), [playerId]: ((g.atBats||{})[playerId]||[]).filter(ab => ab.id !== abId) } };
+    });
+    setGames({ ...games, [activeTeamId]: updated });
+  }
+
+  function getPlayerStats(playerId) {
+    let abs = 0, hits = 0, doubles = 0, triples = 0, hrs = 0, k = 0, bb = 0;
+    const player = (players[activeTeamId]||[]).find(p => p.id === playerId);
+    const scoutingAbs = player?.scoutingAtBats || [];
+    const gamedayAbs = [];
+    (games[activeTeamId]||[]).forEach(g => {
+      ((g.atBats||{})[playerId]||[]).forEach(ab => gamedayAbs.push(ab));
+    });
+    [...scoutingAbs, ...gamedayAbs].forEach(ab => {
+      if (!["Walk","HBP","Sacrifice"].includes(ab.result)) abs++;
+      if (IS_HIT(ab.result)) hits++;
+      if (ab.result === "Double") doubles++;
+      if (ab.result === "Triple") triples++;
+      if (ab.result === "Home Run") hrs++;
+      if (ab.result === "Strikeout (K)") k++;
+      if (ab.result === "Walk" || ab.result === "HBP") bb++;
+    });
+    const ba = abs > 0 ? (hits/abs).toFixed(3).replace(/^0/, "") : "—";
+    return { abs, hits, doubles, triples, hrs, k, bb, ba };
+  }
+
+  function getPlayerHitChart(playerId) {
+    const pts = [];
+    (games[activeTeamId]||[]).forEach(g => {
+      ((g.atBats||{})[playerId]||[]).forEach(ab => {
+        pts.push({ direction: ab.direction||'', result: ab.result, battedBall: ab.battedBall||'' });
+      });
+    });
+    return pts;
+  }
+
+  function getScoutingHitChart(playerId) {
+    const p = (players[activeTeamId]||[]).find(pl => pl.id === playerId);
+    return (p?.scoutingAtBats||[]).map(ab => ({ direction: ab.direction||'', result: ab.result, battedBall: ab.battedBall||'' }));
+  }
+
+  if (!authed) return <LoginScreen pwInput={pwInput} setPwInput={setPwInput} pwErr={pwErr} onLogin={login} />;
+  if (!teamsReady || !playersReady || !gamesReady || !cfReady)
+    return <div style={{ padding:"2rem", textAlign:"center", color:"var(--color-text-secondary)" }}>Loading...</div>;
+
+  const activeGame = teamGames.find(g => g.id === activeGameId);
+
+  return (
+    <div style={{ fontFamily:"var(--font-sans)", minHeight:"100vh", background:"var(--color-background-tertiary)" }}>
+      <Header
+        teams={safeTeams} activeTeamId={activeTeamId} view={view}
+        onSelectTeam={id => { setActiveTeamId(id); setView("roster"); setSelectedPlayerId(null); setSearchQ(""); setActiveGameId(null); }}
+        onAddTeam={() => setView("addTeam")}
+        onNavRoster={() => setView("roster")}
+        onNavGameday={() => setView("gameday")}
+        onNavCustom={() => setView("customFields")}
+      />
+      <div style={{ maxWidth:820, margin:"0 auto", padding:"1rem" }}>
+        {view === "addTeam" && <AddTeamPanel value={newTeamName} onChange={setNewTeamName} onAdd={addTeam} onCancel={() => setView("roster")} />}
+
+        {view === "roster" && (
+          <RosterView
+            team={activeTeam} players={teamPlayers} allPlayers={allTeamPlayers}
+            searchQ={searchQ} setSearchQ={setSearchQ}
+            selectedPlayer={selectedPlayer}
+            onSelectPlayer={p => setSelectedPlayerId(p.id)}
+            onAddPlayer={() => { setEditingPlayer(newPlayer()); setView("addPlayer"); }}
+            onEditPlayer={p => { setEditingPlayer({...p}); setView("editPlayer"); }}
+            onDeletePlayer={deletePlayer}
+            onDeleteTeam={() => deleteTeam(activeTeamId)}
+            onEditProfile={p => { setEditingPlayer({...p}); setView("editPlayer"); }}
+            teams={teams} getPlayerStats={getPlayerStats} getPlayerHitChart={getPlayerHitChart} getScoutingHitChart={getScoutingHitChart}
+            customFieldDefs={customFieldDefs}
+          />
+        )}
+
+        {(view === "addPlayer" || view === "editPlayer") && editingPlayer && (
+          <PlayerForm
+            player={editingPlayer} isNew={view === "addPlayer"} teamName={activeTeam?.name}
+            onChange={setEditingPlayer} onSave={() => savePlayer(editingPlayer)}
+            onCancel={() => { setView("roster"); setEditingPlayer(null); }}
+            customFieldDefs={customFieldDefs}
+          />
+        )}
+
+        {view === "gameday" && (
+          <GameDayView
+            team={activeTeam} players={allTeamPlayers} games={teamGames}
+            activeGame={activeGame} activeGameId={activeGameId}
+            onSelectGame={id => setActiveGameId(id)}
+            onAddGame={addGame} onLogAtBat={logAtBat} onDeleteAtBat={deleteAtBat}
+            onViewProfile={p => { setSelectedPlayerId(p.id); setView("roster"); }}
+          />
+        )}
+
+        {view === "customFields" && (
+          <CustomFieldsView defs={customFieldDefs} onChange={setCustomFieldDefs} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ pwInput, setPwInput, pwErr, onLogin }) {
+  return (
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:SDLL_DARK }}>
+      <div style={{ background:"var(--color-background-primary)", borderRadius:16, padding:"2.5rem 2rem", width:320, textAlign:"center", border:`2px solid ${SDLL_ORANGE}` }}>
+        <div style={{ width:64, height:64, borderRadius:"50%", background:SDLL_ORANGE, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 1rem", fontSize:28 }}>⚾</div>
+        <div style={{ fontSize:20, fontWeight:500, color:"var(--color-text-primary)", marginBottom:4 }}>SDLL Scout</div>
+        <div style={{ fontSize:13, color:"var(--color-text-secondary)", marginBottom:"1.5rem" }}>South Durham Little League</div>
+        <input type="password" placeholder="Coach password" value={pwInput}
+          onChange={e => setPwInput(e.target.value)} onKeyDown={e => e.key==="Enter" && onLogin()}
+          style={{ width:"100%", marginBottom:12, boxSizing:"border-box" }} />
+        {pwErr && <div style={{ fontSize:13, color:SDLL_ORANGE, marginBottom:10 }}>Incorrect password.</div>}
+        <button onClick={onLogin} style={{ width:"100%", padding:10, background:SDLL_ORANGE, color:"#fff", border:"none", borderRadius:8, fontWeight:500, fontSize:15, cursor:"pointer" }}>Sign In</button>
+      </div>
+    </div>
+  );
+}
+
+function Header({ teams, activeTeamId, view, onSelectTeam, onAddTeam, onNavRoster, onNavGameday, onNavCustom }) {
+  return (
+    <div style={{ background:SDLL_DARK, borderBottom:`3px solid ${SDLL_ORANGE}` }}>
+      <div style={{ maxWidth:820, margin:"0 auto", padding:"0.75rem 1rem" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"0.75rem" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ width:34, height:34, borderRadius:"50%", background:SDLL_ORANGE, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>⚾</div>
+            <div>
+              <div style={{ fontSize:15, fontWeight:500, color:"#fff", lineHeight:1.2 }}>SDLL Scout</div>
+              <div style={{ fontSize:10, color:"rgba(255,255,255,0.5)", lineHeight:1.2 }}>South Durham Little League</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:6 }}>
+            {[["roster","Roster"],["gameday","Game Day"],["customFields","Custom Fields"]].map(([v,l]) => (
+              <button key={v} onClick={v==="roster"?onNavRoster:v==="gameday"?onNavGameday:onNavCustom} style={{
+                padding:"4px 10px", borderRadius:6, fontSize:12, cursor:"pointer",
+                background: view===v ? SDLL_ORANGE : "transparent",
+                color: view===v ? "#fff" : "rgba(255,255,255,0.6)",
+                border:`1px solid ${view===v ? SDLL_ORANGE : "rgba(255,255,255,0.15)"}`,
+                fontWeight: view===v ? 500 : 400,
+              }}>{l}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+          {teams.map(t => (
+            <button key={t.id} onClick={() => onSelectTeam(t.id)} style={{
+              padding:"4px 10px", borderRadius:20, fontSize:12, fontWeight:500, cursor:"pointer",
+              border:`1.5px solid ${t.id===activeTeamId ? SDLL_ORANGE : "rgba(255,255,255,0.2)"}`,
+              background: t.id===activeTeamId ? SDLL_ORANGE : "transparent",
+              color: t.id===activeTeamId ? "#fff" : "rgba(255,255,255,0.6)",
+            }}>{t.name}</button>
+          ))}
+          <button onClick={onAddTeam} style={{
+            padding:"4px 10px", borderRadius:20, fontSize:12, cursor:"pointer",
+            border:"1.5px solid rgba(255,255,255,0.15)", background:"transparent", color:"rgba(255,255,255,0.4)",
+          }}>+ Add Team</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RosterView({ team, players, allPlayers, searchQ, setSearchQ, selectedPlayer, onSelectPlayer, onAddPlayer, onEditPlayer, onDeletePlayer, onDeleteTeam, onEditProfile, teams, getPlayerStats, getPlayerHitChart, getScoutingHitChart, customFieldDefs }) {
+  const [showDeleteTeam, setShowDeleteTeam] = useState(false);
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", margin:"1rem 0 0.75rem" }}>
+        <div>
+          <div style={{ fontSize:18, fontWeight:500, color:"var(--color-text-primary)" }}>{team?.name}</div>
+          <div style={{ fontSize:12, color:"var(--color-text-secondary)" }}>{allPlayers.length} players · {team?.isOurs ? "Your Team" : "Opponent Scout"}</div>
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          {teams.length > 1 && (
+            <button onClick={() => setShowDeleteTeam(true)} style={{ padding:"5px 10px", borderRadius:7, fontSize:12, cursor:"pointer", border:"0.5px solid var(--color-border-tertiary)", background:"transparent", color:"var(--color-text-secondary)" }}>Remove Team</button>
+          )}
+          <button onClick={onAddPlayer} style={{ padding:"5px 12px", borderRadius:7, fontSize:12, fontWeight:500, cursor:"pointer", background:SDLL_GREEN, color:"#fff", border:"none" }}>+ Add Player</button>
+        </div>
+      </div>
+      {showDeleteTeam && (
+        <div style={{ background:"var(--color-background-primary)", border:`1px solid ${SDLL_ORANGE}`, borderRadius:10, padding:"1rem", marginBottom:"1rem" }}>
+          <div style={{ fontSize:14, marginBottom:10, color:"var(--color-text-primary)" }}>Remove <strong>{team?.name}</strong> and all profiles?</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={() => { onDeleteTeam(); setShowDeleteTeam(false); }} style={{ padding:"5px 12px", borderRadius:7, fontSize:12, background:SDLL_ORANGE, color:"#fff", border:"none", cursor:"pointer" }}>Remove</button>
+            <button onClick={() => setShowDeleteTeam(false)} style={{ padding:"5px 12px", borderRadius:7, fontSize:12, background:"transparent", border:"0.5px solid var(--color-border-tertiary)", cursor:"pointer", color:"var(--color-text-secondary)" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {allPlayers.length > 4 && (
+        <input placeholder="Search players..." value={searchQ} onChange={e => setSearchQ(e.target.value)}
+          style={{ width:"100%", marginBottom:"0.75rem", boxSizing:"border-box" }} />
+      )}
+      {allPlayers.length === 0 ? (
+        <div style={{ textAlign:"center", padding:"3rem 1rem", background:"var(--color-background-primary)", borderRadius:12, border:"0.5px solid var(--color-border-tertiary)", color:"var(--color-text-secondary)", fontSize:14 }}>
+          No players yet — add your first player to get started.
+        </div>
+      ) : players.length === 0 ? (
+        <div style={{ textAlign:"center", padding:"2rem", color:"var(--color-text-secondary)", fontSize:14 }}>No players match search.</div>
+      ) : (
+        <div style={{ display:"grid", gap:8 }}>
+          {players.map(p => (
+            <PlayerCard key={p.id} player={p} isSelected={selectedPlayer?.id===p.id}
+              onSelect={() => onSelectPlayer(p)} onEdit={() => onEditPlayer(p)} onDelete={() => onDeletePlayer(p.id)}
+              stats={getPlayerStats(p.id)} />
+          ))}
+        </div>
+      )}
+      {selectedPlayer && (
+        <div style={{ marginTop:"1.5rem" }}>
+          <PlayerProfileCard player={selectedPlayer} teamName={team?.name}
+            onEdit={() => onEditProfile(selectedPlayer)}
+            stats={getPlayerStats(selectedPlayer.id)}
+            hitChart={getPlayerHitChart(selectedPlayer.id)}
+            scoutingHitChart={getScoutingHitChart(selectedPlayer.id)}
+            customFieldDefs={customFieldDefs} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlayerCard({ player, isSelected, onSelect, onEdit, onDelete, stats }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  return (
+    <div onClick={onSelect} style={{
+      background:"var(--color-background-primary)",
+      border:`${isSelected?"2px":"0.5px"} solid ${isSelected?SDLL_ORANGE:"var(--color-border-tertiary)"}`,
+      borderRadius:10, padding:"0.65rem 1rem", cursor:"pointer",
+    }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <div style={{
+            width:36, height:36, borderRadius:"50%", flexShrink:0,
+            background: isSelected ? SDLL_ORANGE : SDLL_LIGHT_GREEN,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontSize:12, fontWeight:500, color: isSelected ? "#fff" : SDLL_GREEN,
+          }}>
+            {player.number ? `#${player.number}` : (player.name.slice(0,2).toUpperCase()||"?")}
+          </div>
+          <div>
+            <div style={{ fontWeight:500, fontSize:14, color:"var(--color-text-primary)" }}>{player.name||"Unnamed Player"}</div>
+            <div style={{ fontSize:11, color:"var(--color-text-secondary)", marginTop:1 }}>
+              {[
+                (player.positions||[]).join("/"),
+                player.battingSide ? `Bats ${player.battingSide[0]}` : "",
+                stats.abs > 0 ? `BA: ${stats.ba}` : "",
+              ].filter(Boolean).join(" · ") || "No details yet"}
+
+            </div>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:6 }} onClick={e => e.stopPropagation()}>
+          {confirmDelete ? (
+            <>
+              <button onClick={onDelete} style={{ padding:"3px 8px", fontSize:11, borderRadius:5, cursor:"pointer", background:SDLL_ORANGE, color:"#fff", border:"none" }}>Delete</button>
+              <button onClick={() => setConfirmDelete(false)} style={{ padding:"3px 8px", fontSize:11, borderRadius:5, cursor:"pointer", background:"transparent", border:"0.5px solid var(--color-border-tertiary)", color:"var(--color-text-secondary)" }}>Cancel</button>
+            </>
+          ) : (
+            <>
+              <button onClick={onEdit} style={{ padding:"3px 8px", fontSize:11, borderRadius:5, cursor:"pointer", background:"transparent", border:"0.5px solid var(--color-border-tertiary)", color:"var(--color-text-secondary)" }}>Edit</button>
+              <button onClick={() => setConfirmDelete(true)} style={{ padding:"3px 8px", fontSize:11, borderRadius:5, cursor:"pointer", background:"transparent", border:"0.5px solid var(--color-border-tertiary)", color:"var(--color-text-secondary)" }}>✕</button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HitChartDiagram({ hits }) {
+  const zoneCounts = {};
+  hits.filter(h => h.direction).forEach(h => { zoneCounts[h.direction] = (zoneCounts[h.direction]||[]).concat(h); });
+
+  const cx = 220;
+  const homeY = 370;
+  const baseDist = 95;
+
+  const home   = { x: cx,            y: homeY };
+  const first  = { x: cx + baseDist, y: homeY - baseDist };
+  const second = { x: cx,            y: homeY - baseDist * 2 };
+  const third  = { x: cx - baseDist, y: homeY - baseDist };
+
+  const foulLen = 290;
+  const angle = Math.PI / 4;
+  const lfX = cx - foulLen * Math.sin(angle);
+  const lfY = homeY - foulLen * Math.cos(angle);
+  const rfX = cx + foulLen * Math.sin(angle);
+  const rfY = homeY - foulLen * Math.cos(angle);
+
+  const ofR = 290;
+  const infieldArcR = 115;
+  const moundY = homeY - baseDist * 1.43;
+
+  const lineColor = "#b0bec5";
+  const dirtColor = "#e8ddd0";
+  const grassFill = "#eef3ee";
+
+  return (
+    <div style={{ background:"#f0f4f0", borderRadius:12, padding:"0.75rem", marginBottom:"1rem" }}>
+      <div style={{ fontSize:11, color:SDLL_GREEN, fontWeight:500, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Spray Chart</div>
+      <svg viewBox="0 0 440 400" style={{ width:"100%", maxWidth:440, display:"block", margin:"0 auto" }}>
+
+        {/* Fair territory */}
+        <path
+          d={`M ${home.x} ${home.y} L ${lfX} ${lfY} A ${ofR} ${ofR} 0 0 1 ${rfX} ${rfY} Z`}
+          fill={grassFill} stroke={lineColor} strokeWidth="1.5"
+        />
+
+        {/* Infield dirt */}
+        <path
+          d={`M ${third.x} ${third.y} L ${home.x} ${home.y} L ${first.x} ${first.y} A ${infieldArcR} ${infieldArcR} 0 0 0 ${third.x} ${third.y} Z`}
+          fill={dirtColor} stroke="none"
+        />
+        <path
+          d={`M ${third.x} ${third.y} A ${infieldArcR} ${infieldArcR} 0 0 1 ${first.x} ${first.y}`}
+          fill="none" stroke={lineColor} strokeWidth="1"
+        />
+
+        {/* Foul lines */}
+        <line x1={home.x} y1={home.y} x2={lfX} y2={lfY} stroke={lineColor} strokeWidth="1.5" />
+        <line x1={home.x} y1={home.y} x2={rfX} y2={rfY} stroke={lineColor} strokeWidth="1.5" />
+
+        {/* Baselines */}
+        <line x1={home.x} y1={home.y} x2={first.x} y2={first.y} stroke={lineColor} strokeWidth="1.2" />
+        <line x1={first.x} y1={first.y} x2={second.x} y2={second.y} stroke={lineColor} strokeWidth="1.2" />
+        <line x1={second.x} y1={second.y} x2={third.x} y2={third.y} stroke={lineColor} strokeWidth="1.2" />
+        <line x1={third.x} y1={third.y} x2={home.x} y2={home.y} stroke={lineColor} strokeWidth="1.2" />
+
+        {/* Pitcher mound */}
+        <circle cx={cx} cy={moundY} r={9} fill={dirtColor} stroke={lineColor} strokeWidth="1" />
+        <circle cx={cx} cy={moundY} r={3} fill={lineColor} />
+
+        {/* Bases */}
+        {[first, second, third].map((b, i) => (
+          <rect key={i} x={b.x-7} y={b.y-7} width="14" height="14"
+            fill={lineColor} stroke="#90a4ae" strokeWidth="0.5"
+            transform={`rotate(45 ${b.x} ${b.y})`} />
+        ))}
+
+        {/* Home plate circle + pentagon */}
+        <circle cx={home.x} cy={home.y} r={22} fill={dirtColor} stroke={lineColor} strokeWidth="1" />
+        <polygon
+          points={`${home.x},${home.y-10} ${home.x+8},${home.y-4} ${home.x+8},${home.y+6} ${home.x-8},${home.y+6} ${home.x-8},${home.y-4}`}
+          fill={lineColor} stroke="#90a4ae" strokeWidth="0.5"
+        />
+
+        {/* Position labels */}
+        {[
+          { label:"LF",  x:95,              y:178 },
+          { label:"CF",  x:220,             y:112 },
+          { label:"RF",  x:345,             y:178 },
+          { label:"SS",  x:168,             y:222 },
+          { label:"2B",  x:272,             y:222 },
+          { label:"3B",  x:cx-baseDist-22,  y:homeY-baseDist+4 },
+          { label:"1B",  x:cx+baseDist+22,  y:homeY-baseDist+4 },
+          { label:"P",   x:cx,              y:moundY-18 },
+          { label:"C",   x:cx,              y:homeY+10 },
+        ].map(pos => (
+          <text key={pos.label} x={pos.x} y={pos.y} textAnchor="middle"
+            fill={lineColor} fontSize="11" fontWeight="500">{pos.label}</text>
+        ))}
+
+        {/* Hit dots — single color */}
+        {Object.entries(zoneCounts).map(([dir, hitArr]) => {
+          const zone = FIELD_ZONES[dir];
+          if (!zone) return null;
+          const count = hitArr.length;
+          const r = Math.min(8 + count * 3, 24);
+          return (
+            <g key={dir}>
+              <circle cx={zone.x} cy={zone.y} r={r+5} fill={SDLL_ORANGE} opacity="0.2" />
+              <circle cx={zone.x} cy={zone.y} r={r} fill={SDLL_ORANGE} opacity="1" stroke="#fff" strokeWidth="2" />
+              <text x={zone.x} y={zone.y+5} textAnchor="middle" fill="#fff" fontSize="12" fontWeight="700">{count}</text>
+            </g>
+          );
+        })}
+
+        {hits.length === 0 && (
+          <text x="220" y="240" textAnchor="middle" fill={lineColor} fontSize="13">No hits logged yet</text>
+        )}
+      </svg>
+
+
+    </div>
+  );
+}
+
+
+function FieldSidePieChart({ scoutingHits, gamedayHits }) {
+  const allHits = [...(scoutingHits||[]), ...(gamedayHits||[])];
+  const sideMap = {
+    "LF":"Left","LCF":"Left","3B":"Left","SS":"Left",
+    "CF":"Center","P":"Center","C":"Center",
+    "RF":"Right","RCF":"Right","1B":"Right","2B":"Right",
+  };
+  const counts = { Left: 0, Center: 0, Right: 0 };
+  allHits.forEach(h => { if (h.direction && sideMap[h.direction]) counts[sideMap[h.direction]]++; });
+  const total = counts.Left + counts.Center + counts.Right;
+  if (total === 0) return null;
+
+  const colors = { Left: "#1a7abf", Center: SDLL_GREEN, Right: SDLL_ORANGE };
+  const types = ["Left","Center","Right"];
+  const cx = 60, cy = 60, r = 52;
+  let cumAngle = -Math.PI / 2;
+  const slices = types.map(t => {
+    const angle = (counts[t] / total) * 2 * Math.PI;
+    const x1 = cx + r * Math.cos(cumAngle);
+    const y1 = cy + r * Math.sin(cumAngle);
+    cumAngle += angle;
+    const x2 = cx + r * Math.cos(cumAngle);
+    const y2 = cy + r * Math.sin(cumAngle);
+    return { t, count: counts[t], x1, y1, x2, y2, large: angle > Math.PI ? 1 : 0, color: colors[t] };
+  }).filter(s => s.count > 0);
+
+  return (
+    <div style={{ background:"var(--color-background-secondary)", borderRadius:10, padding:"0.65rem 0.75rem", marginBottom:0, height:"100%", boxSizing:"border-box" }}>
+      <div style={{ fontSize:10, fontWeight:500, color:SDLL_GREEN, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Field Side</div>
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:8 }}>
+        <svg viewBox="0 0 120 120" style={{ width:80, height:80, flexShrink:0 }}>
+          {slices.length === 1
+            ? <circle cx={cx} cy={cy} r={r} fill={slices[0].color} opacity="0.85" />
+            : slices.map((s,i) => (
+                <path key={i} d={`M ${cx} ${cy} L ${s.x1} ${s.y1} A ${r} ${r} 0 ${s.large} 1 ${s.x2} ${s.y2} Z`}
+                  fill={s.color} opacity="0.85" stroke="var(--color-background-secondary)" strokeWidth="1.5" />
+              ))
+          }
+          <circle cx={cx} cy={cy} r={22} fill="var(--color-background-secondary)" />
+          <text x={cx} y={cy+2} textAnchor="middle" dominantBaseline="middle" fill="var(--color-text-primary)" fontSize="13" fontWeight="600">{total}</text>
+          <text x={cx} y={cy+16} textAnchor="middle" fill="var(--color-text-secondary)" fontSize="8">total</text>
+        </svg>
+        <div style={{ display:"grid", gap:5, width:"100%" }}>
+          {types.map(t => {
+            const pct = total > 0 ? Math.round((counts[t]/total)*100) : 0;
+            return (
+              <div key={t} style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+                  <div style={{ width:10, height:10, borderRadius:2, background:colors[t], flexShrink:0 }} />
+                  <span style={{ fontSize:12, color:"var(--color-text-secondary)" }}>{t}</span>
+                </div>
+                <div style={{ display:"flex", gap:6 }}>
+                  <span style={{ fontSize:13, fontWeight:600, color:"var(--color-text-primary)" }}>{counts[t]}</span>
+                  <span style={{ fontSize:11, color:"var(--color-text-secondary)" }}>({pct}%)</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BattedBallPieChart({ scoutingHits, gamedayHits }) {
+  const allHits = [...(scoutingHits||[]), ...(gamedayHits||[])];
+  const types = ["Ground Ball", "Line Drive", "Fly Ball"];
+  const colors = { "Ground Ball": "#8B6340", "Line Drive": SDLL_GREEN, "Fly Ball": "#1a7abf" };
+
+  const counts = { "Ground Ball": 0, "Line Drive": 0, "Fly Ball": 0 };
+  allHits.forEach(h => { if (h.battedBall && counts[h.battedBall] !== undefined) counts[h.battedBall]++; });
+  const total = Object.values(counts).reduce((a,b) => a+b, 0);
+  if (total === 0) return null;
+
+  // Build pie slices
+  let cumAngle = -Math.PI / 2;
+  const cx = 60, cy = 60, r = 52;
+  const slices = types.map(t => {
+    const pct = counts[t] / total;
+    const angle = pct * 2 * Math.PI;
+    const x1 = cx + r * Math.cos(cumAngle);
+    const y1 = cy + r * Math.sin(cumAngle);
+    cumAngle += angle;
+    const x2 = cx + r * Math.cos(cumAngle);
+    const y2 = cy + r * Math.sin(cumAngle);
+    const large = angle > Math.PI ? 1 : 0;
+    return { t, pct, count: counts[t], x1, y1, x2, y2, large, color: colors[t] };
+  }).filter(s => s.count > 0);
+
+  return (
+    <div style={{ background:"var(--color-background-secondary)", borderRadius:10, padding:"0.65rem 0.75rem", marginBottom:0, height:"100%", boxSizing:"border-box" }}>
+      <div style={{ fontSize:10, fontWeight:500, color:SDLL_GREEN, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>
+        Batted Ball
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:8 }}>
+        <svg viewBox="0 0 120 120" style={{ width:80, height:80, flexShrink:0 }}>
+          {slices.length === 1 ? (
+            <circle cx={cx} cy={cy} r={r} fill={slices[0].color} opacity="0.85" />
+          ) : (
+            slices.map((s, i) => (
+              <path key={i}
+                d={`M ${cx} ${cy} L ${s.x1} ${s.y1} A ${r} ${r} 0 ${s.large} 1 ${s.x2} ${s.y2} Z`}
+                fill={s.color} opacity="0.85" stroke="var(--color-background-secondary)" strokeWidth="1.5"
+              />
+            ))
+          )}
+          <circle cx={cx} cy={cy} r={22} fill="var(--color-background-secondary)" />
+          <text x={cx} y={cy+2} textAnchor="middle" dominantBaseline="middle"
+            fill="var(--color-text-primary)" fontSize="13" fontWeight="600">{total}</text>
+          <text x={cx} y={cy+16} textAnchor="middle"
+            fill="var(--color-text-secondary)" fontSize="8">total</text>
+        </svg>
+        <div style={{ display:"grid", gap:5, width:"100%" }}>
+          {types.map(t => {
+            const count = counts[t];
+            const pct = total > 0 ? Math.round((count/total)*100) : 0;
+            return (
+              <div key={t} style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+                  <div style={{ width:10, height:10, borderRadius:2, background:colors[t], flexShrink:0 }} />
+                  <span style={{ fontSize:12, color:"var(--color-text-secondary)" }}>{t}</span>
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                  <span style={{ fontSize:13, fontWeight:600, color:"var(--color-text-primary)" }}>{count}</span>
+                  <span style={{ fontSize:11, color:"var(--color-text-secondary)" }}>({pct}%)</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PositionHitGrid({ scoutingHits, gamedayHits, strikeouts }) {
+  const positions = ["P","C","1B","2B","3B","SS","LF","LCF","CF","RCF","RF"];
+  const allHits = [...(scoutingHits||[]), ...(gamedayHits||[])];
+
+  // Count all balls in play by position — hits AND outs with a direction
+  const counts = {};
+  positions.forEach(p => { counts[p] = 0; });
+  allHits.forEach(h => { if (h.direction && counts[h.direction] !== undefined) counts[h.direction]++; });
+
+  const hasAny = allHits.some(h => h.direction);
+
+  return (
+    <div style={{ marginBottom:"1rem" }}>
+      <div style={{ fontSize:10, fontWeight:500, color:SDLL_GREEN, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>
+        Balls in Play
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:6 }}>
+        {/* Strikeouts first */}
+        <div style={{ background:"var(--color-background-secondary)", borderRadius:8, padding:"0.5rem", textAlign:"center" }}>
+          <div style={{ fontSize:10, color:"var(--color-text-secondary)", marginBottom:3 }}>K</div>
+          <div style={{ fontSize:18, fontWeight:500, color:"var(--color-text-primary)" }}>{strikeouts||"—"}</div>
+        </div>
+        {/* All positions */}
+        {positions.map(pos => (
+          <div key={pos} style={{ background:"var(--color-background-secondary)", borderRadius:8, padding:"0.5rem", textAlign:"center",
+            opacity: counts[pos] === 0 ? 0.4 : 1,
+          }}>
+            <div style={{ fontSize:10, color:"var(--color-text-secondary)", marginBottom:3 }}>{pos}</div>
+            <div style={{ fontSize:18, fontWeight:500, color: counts[pos] > 0 ? SDLL_GREEN : "var(--color-text-primary)" }}>{counts[pos] > 0 ? counts[pos] : "—"}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PlayerProfileCard({ player, teamName, onEdit, stats, hitChart, scoutingHitChart, customFieldDefs }) {
+
+  return (
+    <div style={{ background:"var(--color-background-primary)", border:"0.5px solid var(--color-border-tertiary)", borderRadius:14, overflow:"hidden" }}>
+      <div style={{ background:SDLL_DARK, padding:"1rem 1.25rem", borderBottom:`3px solid ${SDLL_ORANGE}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <div style={{ width:46, height:46, borderRadius:"50%", background:SDLL_ORANGE, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:500, color:"#fff" }}>
+            {player.number ? `#${player.number}` : (player.name.slice(0,2).toUpperCase()||"?")}
+          </div>
+          <div>
+            <div style={{ fontSize:17, fontWeight:500, color:"#fff" }}>{player.name||"Unnamed"}</div>
+            <div style={{ fontSize:11, color:"rgba(255,255,255,0.55)" }}>
+              {[teamName, player.battingSide ? `Bats ${player.battingSide}` : ""].filter(Boolean).join(" · ")}
+            </div>
+          </div>
+        </div>
+        <button onClick={onEdit} style={{ padding:"5px 12px", borderRadius:7, fontSize:12, cursor:"pointer", background:SDLL_ORANGE, color:"#fff", border:"none", fontWeight:500 }}>Edit</button>
+      </div>
+      <div style={{ padding:"1rem 1.25rem" }}>
+        {/* Position hit counts grid */}
+        <PositionHitGrid scoutingHits={scoutingHitChart||[]} gamedayHits={hitChart||[]} strikeouts={stats.k} />
+        {/* Batted ball pie chart */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:"0rem" }}>
+          <BattedBallPieChart scoutingHits={scoutingHitChart||[]} gamedayHits={hitChart||[]} />
+          <FieldSidePieChart scoutingHits={scoutingHitChart||[]} gamedayHits={hitChart||[]} />
+        </div>
+        {(scoutingHitChart||[]).length > 0 && (
+          <div style={{ marginBottom:"1rem" }}>
+            <div style={{ fontSize:10, fontWeight:500, color:SDLL_GREEN, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Scouting Chart</div>
+            <HitChartDiagram hits={scoutingHitChart} />
+          </div>
+        )}
+        {hitChart.length > 0 && (
+          <div style={{ marginBottom:"1rem" }}>
+            <div style={{ fontSize:10, fontWeight:500, color:SDLL_GREEN, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Game Day Chart</div>
+            <HitChartDiagram hits={hitChart} />
+          </div>
+        )}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:"1rem" }}>
+          <InfoRow label="Positions" value={(player.positions||[]).join(", ")||"—"} />
+          <InfoRow label="Bats" value={player.battingSide||"—"} />
+          <InfoRow label="Hit Tendency" value={player.hitTendency||"—"} accent={SDLL_ORANGE} />
+          <InfoRow label="Speed" value={player.speedRating||"—"} />
+
+        </div>
+        {(customFieldDefs||[]).length > 0 && (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:"1rem" }}>
+            {(customFieldDefs||[]).map(f => (
+              <InfoRow key={f.id} label={f.label} value={(player.customFields||{})[f.id] || "—"} />
+            ))}
+          </div>
+        )}
+        {player.notes && (
+          <div style={{ background:SDLL_LIGHT_GREEN, borderRadius:8, padding:"0.75rem 1rem", borderLeft:`3px solid ${SDLL_GREEN}` }}>
+            <div style={{ fontSize:10, color:SDLL_GREEN, fontWeight:500, marginBottom:4 }}>COACH NOTES</div>
+            <div style={{ fontSize:13, color:"var(--color-text-primary)", lineHeight:1.6 }}>{player.notes}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value, accent }) {
+  return (
+    <div style={{ background:"var(--color-background-secondary)", borderRadius:8, padding:"0.55rem 0.75rem" }}>
+      <div style={{ fontSize:10, color:"var(--color-text-secondary)", marginBottom:3 }}>{label}</div>
+      <div style={{ fontSize:13, fontWeight:500, color:accent||"var(--color-text-primary)" }}>{value}</div>
+    </div>
+  );
+}
+
+function GameDayView({ team, players, games, activeGame, activeGameId, onSelectGame, onAddGame, onLogAtBat, onDeleteAtBat, onViewProfile }) {
+  const [newOpponent, setNewOpponent] = useState("");
+  const [addingGame, setAddingGame] = useState(false);
+  const [selectedPlayerId, setSelectedPlayerId] = useState(null);
+  const [abForm, setAbForm] = useState({ result:"", direction:"", battedBall:"" });
+
+  const selectedPlayer = players.find(p => p.id === selectedPlayerId);
+  const playerAbs = activeGame ? (activeGame.atBats[selectedPlayerId]||[]) : [];
+
+  function submitAb() {
+    if (!abForm.result || !selectedPlayerId || !activeGameId) return;
+    onLogAtBat(activeGameId, selectedPlayerId, abForm);
+    setAbForm({ result:"", direction:"", battedBall:"" });
+  }
+
+  return (
+    <div style={{ marginTop:"1rem" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"1rem" }}>
+        <div style={{ fontSize:18, fontWeight:500, color:"var(--color-text-primary)" }}>Game Day — {team?.name}</div>
+        <button onClick={() => setAddingGame(true)} style={{ padding:"5px 12px", borderRadius:7, fontSize:12, fontWeight:500, cursor:"pointer", background:SDLL_GREEN, color:"#fff", border:"none" }}>+ New Game</button>
+      </div>
+
+      {addingGame && (
+        <div style={{ background:"var(--color-background-primary)", borderRadius:10, padding:"1rem", border:"0.5px solid var(--color-border-tertiary)", marginBottom:"1rem" }}>
+          <div style={{ fontSize:13, fontWeight:500, color:"var(--color-text-primary)", marginBottom:8 }}>Opponent name</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <input value={newOpponent} onChange={e => setNewOpponent(e.target.value)}
+              onKeyDown={e => { if (e.key==="Enter" && newOpponent.trim()) { onAddGame(newOpponent.trim()); setNewOpponent(""); setAddingGame(false); }}}
+              placeholder="e.g. Wilson Little League" style={{ flex:1 }} autoFocus />
+            <button onClick={() => { if (newOpponent.trim()) { onAddGame(newOpponent.trim()); setNewOpponent(""); setAddingGame(false); }}}
+              style={{ padding:"6px 14px", borderRadius:7, fontSize:13, background:SDLL_ORANGE, color:"#fff", border:"none", cursor:"pointer" }}>Start</button>
+            <button onClick={() => setAddingGame(false)} style={{ padding:"6px 10px", borderRadius:7, fontSize:13, background:"transparent", border:"0.5px solid var(--color-border-tertiary)", cursor:"pointer", color:"var(--color-text-secondary)" }}>✕</button>
+          </div>
+        </div>
+      )}
+
+      {games.length > 0 && (
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:"1rem" }}>
+          {games.map(g => (
+            <button key={g.id} onClick={() => onSelectGame(g.id)} style={{
+              padding:"4px 10px", borderRadius:20, fontSize:12, cursor:"pointer",
+              border:`1.5px solid ${g.id===activeGameId ? SDLL_ORANGE : "var(--color-border-tertiary)"}`,
+              background: g.id===activeGameId ? SDLL_ORANGE : "transparent",
+              color: g.id===activeGameId ? "#fff" : "var(--color-text-secondary)",
+            }}>vs {g.opponent} · {g.date}</button>
+          ))}
+        </div>
+      )}
+
+      {!activeGame && (
+        <div style={{ textAlign:"center", padding:"3rem 1rem", background:"var(--color-background-primary)", borderRadius:12, border:"0.5px solid var(--color-border-tertiary)", color:"var(--color-text-secondary)", fontSize:14 }}>
+          Start a new game or select one above to log at-bats.
+        </div>
+      )}
+
+      {activeGame && (
+        <div style={{ display:"grid", gridTemplateColumns:"200px 1fr", gap:"1rem" }}>
+          <div>
+            <div style={{ fontSize:11, fontWeight:500, color:SDLL_GREEN, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Roster</div>
+            <div style={{ display:"grid", gap:5 }}>
+              {players.length === 0 && <div style={{ fontSize:12, color:"var(--color-text-secondary)" }}>No players on this team yet.</div>}
+              {players.map(p => {
+                const absCount = (activeGame.atBats[p.id]||[]).length;
+                const isSel = selectedPlayerId === p.id;
+                return (
+                  <button key={p.id} onClick={() => setSelectedPlayerId(p.id)} style={{
+                    textAlign:"left", padding:"6px 8px", borderRadius:7, cursor:"pointer",
+                    background: isSel ? SDLL_ORANGE : "var(--color-background-primary)",
+                    border:`1px solid ${isSel ? SDLL_ORANGE : "var(--color-border-tertiary)"}`,
+                    color: isSel ? "#fff" : "var(--color-text-primary)",
+                  }}>
+                    <div style={{ fontSize:12, fontWeight:500 }}>{p.name||"Unnamed"}</div>
+                    <div style={{ fontSize:10, opacity:0.7 }}>{absCount} AB{absCount!==1?"s":""} · {p.positions.join("/")||"—"}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            {!selectedPlayer ? (
+              <div style={{ textAlign:"center", padding:"3rem 1rem", background:"var(--color-background-primary)", borderRadius:12, border:"0.5px solid var(--color-border-tertiary)", color:"var(--color-text-secondary)", fontSize:13 }}>
+                Select a player to log at-bats
+              </div>
+            ) : (
+              <div>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"0.75rem" }}>
+                  <div>
+                    <div style={{ fontSize:15, fontWeight:500, color:"var(--color-text-primary)" }}>{selectedPlayer.name}</div>
+                    <div style={{ fontSize:11, color:"var(--color-text-secondary)" }}>vs {activeGame.opponent} · {activeGame.date}</div>
+                  </div>
+                  <button onClick={() => onViewProfile(selectedPlayer)} style={{ fontSize:11, padding:"3px 8px", borderRadius:6, cursor:"pointer", border:"0.5px solid var(--color-border-tertiary)", background:"transparent", color:"var(--color-text-secondary)" }}>View Profile</button>
+                </div>
+
+                <div style={{ background:"var(--color-background-primary)", border:"0.5px solid var(--color-border-tertiary)", borderRadius:10, padding:"1rem", marginBottom:"1rem" }}>
+                  <div style={{ fontSize:11, fontWeight:500, color:SDLL_GREEN, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:10 }}>Log At-Bat</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 80px", gap:8, marginBottom:10 }}>
+                    <div>
+                      <div style={{ fontSize:11, color:"var(--color-text-secondary)", marginBottom:4 }}>Result</div>
+                      <select value={abForm.result} onChange={e => setAbForm({...abForm, result:e.target.value})} style={{ width:"100%", boxSizing:"border-box" }}>
+                        <option value="">Select...</option>
+                        {AB_RESULTS.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, color:"var(--color-text-secondary)", marginBottom:4 }}>Direction</div>
+                      <select value={abForm.direction} onChange={e => setAbForm({...abForm, direction:e.target.value})}
+                        style={{ width:"100%", boxSizing:"border-box",
+                          borderColor: !abForm.direction && abForm.result && !["Walk","HBP","Strikeout (K)","Sacrifice"].includes(abForm.result) ? SDLL_ORANGE : undefined
+                        }}>
+                        <option value="">—</option>
+                        {HIT_DIRECTIONS.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:11, color:"var(--color-text-secondary)", marginBottom:4 }}>Batted Ball</div>
+                      <select value={abForm.battedBall} onChange={e => setAbForm({...abForm, battedBall:e.target.value})} style={{ width:"100%", boxSizing:"border-box" }}>
+                        <option value="">—</option>
+                        {BATTED_BALL_TYPES.map(b => <option key={b} value={b}>{b}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <button onClick={submitAb} disabled={!abForm.result} style={{
+                    padding:"7px 18px", borderRadius:7, fontSize:13, fontWeight:500, cursor:"pointer",
+                    background: abForm.result ? SDLL_ORANGE : "var(--color-background-secondary)",
+                    color: abForm.result ? "#fff" : "var(--color-text-secondary)", border:"none",
+                  }}>Log AB</button>
+                </div>
+
+                {playerAbs.length > 0 && (
+                  <div>
+                    <div style={{ fontSize:11, fontWeight:500, color:SDLL_GREEN, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>This Game ({playerAbs.length} AB{playerAbs.length!==1?"s":""})</div>
+                    <div style={{ display:"grid", gap:5 }}>
+                      {[...playerAbs].reverse().map(ab => (
+                        <div key={ab.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"var(--color-background-primary)", borderRadius:8, padding:"6px 10px", border:"0.5px solid var(--color-border-tertiary)" }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                            <div style={{ width:8, height:8, borderRadius:"50%", background:RESULT_COLORS[ab.result]||"#888", flexShrink:0 }} />
+                            <div>
+                              <span style={{ fontSize:13, fontWeight:500, color:"var(--color-text-primary)" }}>{ab.result}</span>
+                              {ab.direction && <span style={{ fontSize:12, color:"var(--color-text-secondary)", marginLeft:6 }}>· {ab.direction}</span>}
+                              {ab.battedBall && <span style={{ fontSize:12, color:SDLL_GREEN, marginLeft:6 }}>· {ab.battedBall}</span>}
+                            </div>
+                          </div>
+                          <button onClick={() => onDeleteAtBat(activeGameId, selectedPlayerId, ab.id)} style={{ fontSize:11, color:"var(--color-text-secondary)", background:"transparent", border:"none", cursor:"pointer", padding:"2px 6px" }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {playerAbs.length > 0 && (() => {
+                  const hits = playerAbs.filter(ab => IS_HIT(ab.result));
+                  const abs = playerAbs.filter(ab => !["Walk","HBP","Sacrifice"].includes(ab.result)).length;
+                  const rbi = playerAbs.reduce((s,ab) => s+(parseInt(ab.rbi)||0), 0);
+                  return (
+                    <div style={{ display:"flex", gap:8, marginTop:10 }}>
+                      {[["AB",abs],["H",hits.length],["BA", abs>0?(hits.length/abs).toFixed(3).replace(/^0/,""):"—"]].map(([l,v]) => (
+                        <div key={l} style={{ flex:1, background:"var(--color-background-secondary)", borderRadius:7, padding:"0.4rem", textAlign:"center" }}>
+                          <div style={{ fontSize:10, color:"var(--color-text-secondary)" }}>{l}</div>
+                          <div style={{ fontSize:16, fontWeight:500, color:"var(--color-text-primary)" }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustomFieldsView({ defs, onChange }) {
+  const [form, setForm] = useState({ label:"", type:"text", options:"" });
+  const [err, setErr] = useState("");
+
+  function addField() {
+    if (!form.label.trim()) { setErr("Field name is required."); return; }
+    if (form.type === "dropdown" && !form.options.trim()) { setErr("Add at least one option."); return; }
+    const f = { id: crypto.randomUUID(), label: form.label.trim(), type: form.type, options: form.type==="dropdown" ? form.options.split(",").map(o=>o.trim()).filter(Boolean) : [] };
+    onChange([...defs, f]);
+    setForm({ label:"", type:"text", options:"" }); setErr("");
+  }
+
+  function removeField(id) { onChange(defs.filter(f => f.id !== id)); }
+
+  return (
+    <div style={{ marginTop:"1rem" }}>
+      <div style={{ fontSize:18, fontWeight:500, color:"var(--color-text-primary)", marginBottom:4 }}>Custom Fields</div>
+      <div style={{ fontSize:13, color:"var(--color-text-secondary)", marginBottom:"1.25rem" }}>Add your own fields that appear on every player profile. Text, number, or dropdown.</div>
+
+      <div style={{ background:"var(--color-background-primary)", borderRadius:12, padding:"1.25rem", border:"0.5px solid var(--color-border-tertiary)", marginBottom:"1.5rem" }}>
+        <div style={{ fontSize:12, fontWeight:500, color:SDLL_GREEN, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:12 }}>New Field</div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 140px", gap:10, marginBottom:10 }}>
+          <div>
+            <div style={{ fontSize:11, color:"var(--color-text-secondary)", marginBottom:4 }}>Field Name</div>
+            <input value={form.label} onChange={e => setForm({...form, label:e.target.value})}
+              placeholder="e.g. Arm Strength, Baserunning IQ" style={{ width:"100%", boxSizing:"border-box" }} />
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:"var(--color-text-secondary)", marginBottom:4 }}>Type</div>
+            <select value={form.type} onChange={e => setForm({...form, type:e.target.value})} style={{ width:"100%", boxSizing:"border-box" }}>
+              <option value="text">Text</option>
+              <option value="number">Number</option>
+              <option value="dropdown">Dropdown</option>
+            </select>
+          </div>
+        </div>
+        {form.type === "dropdown" && (
+          <div style={{ marginBottom:10 }}>
+            <div style={{ fontSize:11, color:"var(--color-text-secondary)", marginBottom:4 }}>Options (comma-separated)</div>
+            <input value={form.options} onChange={e => setForm({...form, options:e.target.value})}
+              placeholder="e.g. Strong, Average, Weak" style={{ width:"100%", boxSizing:"border-box" }} />
+          </div>
+        )}
+        {err && <div style={{ fontSize:12, color:SDLL_ORANGE, marginBottom:8 }}>{err}</div>}
+        <button onClick={addField} style={{ padding:"7px 18px", borderRadius:7, fontSize:13, fontWeight:500, cursor:"pointer", background:SDLL_GREEN, color:"#fff", border:"none" }}>Add Field</button>
+      </div>
+
+      {defs.length === 0 ? (
+        <div style={{ textAlign:"center", padding:"2rem", background:"var(--color-background-primary)", borderRadius:12, border:"0.5px solid var(--color-border-tertiary)", color:"var(--color-text-secondary)", fontSize:13 }}>
+          No custom fields yet. Add one above and it will appear on every player profile.
+        </div>
+      ) : (
+        <div style={{ display:"grid", gap:8 }}>
+          {defs.map((f, i) => (
+            <div key={f.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"var(--color-background-primary)", borderRadius:10, padding:"0.75rem 1rem", border:"0.5px solid var(--color-border-tertiary)" }}>
+              <div>
+                <div style={{ fontSize:14, fontWeight:500, color:"var(--color-text-primary)" }}>{f.label}</div>
+                <div style={{ fontSize:11, color:"var(--color-text-secondary)", marginTop:2 }}>
+                  {f.type}{f.type==="dropdown" ? ` · ${f.options.join(", ")}` : ""}
+                </div>
+              </div>
+              <button onClick={() => removeField(f.id)} style={{ fontSize:12, color:"var(--color-text-secondary)", background:"transparent", border:"0.5px solid var(--color-border-tertiary)", borderRadius:6, cursor:"pointer", padding:"3px 8px" }}>Remove</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddTeamPanel({ value, onChange, onAdd, onCancel }) {
+  return (
+    <div style={{ background:"var(--color-background-primary)", borderRadius:12, padding:"1.5rem", border:"0.5px solid var(--color-border-tertiary)", marginTop:"1rem" }}>
+      <div style={{ fontSize:16, fontWeight:500, color:"var(--color-text-primary)", marginBottom:"1rem" }}>Add New Team</div>
+      <input placeholder="Team name (e.g. Chapel Hill LL)" value={value}
+        onChange={e => onChange(e.target.value)} onKeyDown={e => e.key==="Enter" && onAdd()}
+        style={{ width:"100%", boxSizing:"border-box", marginBottom:12 }} autoFocus />
+      <div style={{ display:"flex", gap:8 }}>
+        <button onClick={onAdd} style={{ padding:"7px 18px", borderRadius:7, fontWeight:500, fontSize:13, background:SDLL_GREEN, color:"#fff", border:"none", cursor:"pointer" }}>Add Team</button>
+        <button onClick={onCancel} style={{ padding:"7px 18px", borderRadius:7, fontSize:13, cursor:"pointer", background:"transparent", border:"0.5px solid var(--color-border-tertiary)", color:"var(--color-text-secondary)" }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function ScoutingAbLogger({ player, onChange }) {
+  const [form, setForm] = useState({ result:"", direction:"", battedBall:"" });
+  const abs = Array.isArray(player.scoutingAtBats) ? player.scoutingAtBats : [];
+
+  function addAb() {
+    if (!form.result) return;
+    const updated = [...abs, { ...form, id: crypto.randomUUID(), ts: Date.now() }];
+    onChange({ ...player, scoutingAtBats: updated });
+    setForm({ result:"", direction:"", battedBall:"" });
+  }
+
+  function removeAb(id) {
+    onChange({ ...player, scoutingAtBats: abs.filter(a => a.id !== id) });
+  }
+
+  const hits = abs.filter(a => a.direction).map(a => ({ direction: a.direction, result: a.result, battedBall: a.battedBall||'' }));
+  const totalAbs = abs.filter(a => !["Walk","HBP","Sacrifice"].includes(a.result)).length;
+  const totalHits = abs.filter(a => IS_HIT(a.result)).length;
+  const ba = totalAbs > 0 ? (totalHits/totalAbs).toFixed(3).replace(/^0/,"") : "—";
+
+  return (
+    <div>
+      <div style={{ fontSize:11, color:"var(--color-text-secondary)", marginBottom:8 }}>
+        Scouting at-bats — add from GameChanger or previous games
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 64px auto", gap:8, marginBottom:8, alignItems:"flex-end" }}>
+        <div>
+          <Label>Result</Label>
+          <select value={form.result} onChange={e => setForm({...form, result:e.target.value})} style={{ width:"100%", boxSizing:"border-box" }}>
+            <option value="">Select...</option>
+            {AB_RESULTS.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
+        <div>
+          <Label>Direction</Label>
+          <select value={form.direction} onChange={e => setForm({...form, direction:e.target.value})} style={{ width:"100%", boxSizing:"border-box" }}>
+            <option value="">—</option>
+            {HIT_DIRECTIONS.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+        <div>
+          <Label>Batted Ball</Label>
+          <select value={form.battedBall} onChange={e => setForm({...form, battedBall:e.target.value})} style={{ width:"100%", boxSizing:"border-box" }}>
+            <option value="">—</option>
+            {BATTED_BALL_TYPES.map(b => <option key={b} value={b}>{b}</option>)}
+          </select>
+        </div>
+        <button onClick={addAb} disabled={!form.result} style={{
+          padding:"6px 12px", borderRadius:7, fontSize:13, fontWeight:500, cursor:"pointer",
+          background: form.result ? SDLL_ORANGE : "var(--color-background-secondary)",
+          color: form.result ? "#fff" : "var(--color-text-secondary)", border:"none",
+          alignSelf:"flex-end",
+        }}>+ Add</button>
+      </div>
+
+      {abs.length > 0 && (
+        <div>
+          <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+            {[["AB",totalAbs],["H",totalHits],["BA",ba]].map(([l,v]) => (
+              <div key={l} style={{ background:"var(--color-background-secondary)", borderRadius:6, padding:"4px 10px", textAlign:"center", minWidth:48 }}>
+                <div style={{ fontSize:9, color:"var(--color-text-secondary)" }}>{l}</div>
+                <div style={{ fontSize:14, fontWeight:500, color:"var(--color-text-primary)" }}>{v}</div>
+              </div>
+            ))}
+          </div>
+          {hits.length > 0 && <HitChartDiagram hits={hits} />}
+          <div style={{ display:"grid", gap:4, maxHeight:200, overflowY:"auto" }}>
+            {[...abs].reverse().map(ab => (
+              <div key={ab.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"var(--color-background-secondary)", borderRadius:7, padding:"5px 10px" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <div style={{ width:7, height:7, borderRadius:"50%", background:RESULT_COLORS[ab.result]||"#888", flexShrink:0 }} />
+                  <span style={{ fontSize:12, fontWeight:500, color:"var(--color-text-primary)" }}>{ab.result}</span>
+                  {ab.direction && <span style={{ fontSize:11, color:"var(--color-text-secondary)" }}>· {ab.direction}</span>}
+                  {ab.battedBall && <span style={{ fontSize:11, color:SDLL_GREEN }}>· {ab.battedBall}</span>}
+                </div>
+                <button onClick={() => removeAb(ab.id)} style={{ fontSize:11, color:"var(--color-text-secondary)", background:"transparent", border:"none", cursor:"pointer", padding:"2px 6px" }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlayerForm({ player, isNew, teamName, onChange, onSave, onCancel, customFieldDefs }) {
+  const set = (field, val) => onChange({ ...player, [field]: val });
+  const toggleArr = (field, val) => {
+    const arr = Array.isArray(player[field]) ? player[field] : [];
+    onChange({ ...player, [field]: arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val] });
+  };
+  const setCustom = (id, val) => onChange({ ...player, customFields: { ...(player.customFields||{}), [id]: val } });
+
+  return (
+    <div style={{ background:"var(--color-background-primary)", borderRadius:14, overflow:"hidden", border:"0.5px solid var(--color-border-tertiary)", marginTop:"1rem" }}>
+      <div style={{ background:SDLL_DARK, padding:"1rem 1.25rem", borderBottom:`3px solid ${SDLL_GREEN}` }}>
+        <div style={{ fontSize:16, fontWeight:500, color:"#fff" }}>{isNew ? "Add Player" : "Edit Player"}</div>
+        <div style={{ fontSize:11, color:"rgba(255,255,255,0.5)" }}>{teamName}</div>
+      </div>
+      <div style={{ padding:"1.25rem" }}>
+        <Section label="Player Info">
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+            <div>
+              <Label>Name</Label>
+              <input value={player.name} onChange={e => set("name", e.target.value)} placeholder="Full name" style={{ width:"100%", boxSizing:"border-box" }} />
+            </div>
+            <div>
+              <Label>Jersey #</Label>
+              <input value={player.number} onChange={e => set("number", e.target.value)} placeholder="00" style={{ width:"100%", boxSizing:"border-box" }} />
+            </div>
+            <div>
+              <Label>Bats</Label>
+              <select value={player.battingSide} onChange={e => set("battingSide", e.target.value)} style={{ width:"100%", boxSizing:"border-box" }}>
+                <option value="">Select...</option>
+                {BATTING_SIDES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+        </Section>
+
+        <Section label="Positions">
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+            {ALL_POSITIONS.map(pos => (
+              <ToggleChip key={pos} label={pos} active={(player.positions||[]).includes(pos)} onClick={() => toggleArr("positions", pos)} color={SDLL_GREEN} />
+            ))}
+          </div>
+        </Section>
+
+        <Section label="Tendencies">
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+            <div>
+              <Label>Hit Tendency</Label>
+              <select value={player.hitTendency} onChange={e => set("hitTendency", e.target.value)} style={{ width:"100%", boxSizing:"border-box" }}>
+                <option value="">Select...</option>
+                {HIT_TENDENCIES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label>Speed Rating</Label>
+              <select value={player.speedRating} onChange={e => set("speedRating", e.target.value)} style={{ width:"100%", boxSizing:"border-box" }}>
+                <option value="">Select...</option>
+                {SPEED_RATINGS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+          <ScoutingAbLogger player={player} onChange={onChange} />
+        </Section>
+
+
+        {customFieldDefs.length > 0 && (
+          <Section label="Custom Fields">
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              {customFieldDefs.map(f => (
+                <div key={f.id}>
+                  <Label>{f.label}</Label>
+                  {f.type === "dropdown" ? (
+                    <select value={(player.customFields||{})[f.id]||""} onChange={e => setCustom(f.id, e.target.value)} style={{ width:"100%", boxSizing:"border-box" }}>
+                      <option value="">Select...</option>
+                      {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : (
+                    <input type={f.type} value={(player.customFields||{})[f.id]||""} onChange={e => setCustom(f.id, e.target.value)} style={{ width:"100%", boxSizing:"border-box" }} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        <Section label="Coach Notes">
+          <textarea value={player.notes} onChange={e => set("notes", e.target.value)}
+            placeholder="Tendencies, scouting observations, game notes..."
+            rows={4} style={{ width:"100%", boxSizing:"border-box", resize:"vertical", fontFamily:"inherit" }} />
+        </Section>
+
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={onSave} style={{ padding:"9px 22px", borderRadius:7, fontWeight:500, fontSize:14, background:SDLL_ORANGE, color:"#fff", border:"none", cursor:"pointer" }}>Save Player</button>
+          <button onClick={onCancel} style={{ padding:"9px 22px", borderRadius:7, fontSize:14, cursor:"pointer", background:"transparent", border:"0.5px solid var(--color-border-tertiary)", color:"var(--color-text-secondary)" }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Section({ label, children }) {
+  return (
+    <div style={{ marginBottom:"1.25rem" }}>
+      <div style={{ fontSize:10, fontWeight:500, color:SDLL_GREEN, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function Label({ children }) {
+  return <div style={{ fontSize:11, color:"var(--color-text-secondary)", marginBottom:4 }}>{children}</div>;
+}
+
+function ToggleChip({ label, active, onClick, color }) {
+  return (
+    <button onClick={onClick} style={{
+      padding:"4px 10px", borderRadius:20, fontSize:12, cursor:"pointer",
+      border:`1.5px solid ${active ? color : "var(--color-border-tertiary)"}`,
+      background: active ? color : "transparent",
+      color: active ? "#fff" : "var(--color-text-secondary)",
+      fontWeight: active ? 500 : 400,
+    }}>{label}</button>
+  );
+}
+
+
+    class ErrorBoundary extends React.Component {
+      constructor(props) { super(props); this.state = { error: null }; }
+      static getDerivedStateFromError(e) { return { error: e.message }; }
+      render() {
+        if (this.state.error) {
+          return React.createElement('div', {
+            style: { padding: '2rem', fontFamily: 'sans-serif', color: '#c0392b', background: '#fff', minHeight: '100vh' }
+          },
+            React.createElement('h2', null, 'App Error'),
+            React.createElement('p', null, this.state.error),
+            React.createElement('p', { style: { marginTop: '1rem', color: '#666', fontSize: '13px' } }, 'Please screenshot this and send to your developer.')
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(React.createElement(ErrorBoundary, null, React.createElement(App)));
+  </script>
+</body>
+</html>
